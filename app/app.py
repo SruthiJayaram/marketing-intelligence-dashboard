@@ -10,13 +10,102 @@ from sklearn.metrics import mean_absolute_error, r2_score
 import warnings
 warnings.filterwarnings('ignore')
 from plotly.subplots import make_subplots
+from pathlib import Path
 # Load data
 @st.cache_data
 def load_data():
+    # Check if processed data exists, if not generate it
+    if not Path('data/df_final.csv').exists():
+        generate_processed_data()
+    
     df = pd.read_csv('data/df_final.csv', parse_dates=['date'])
     # Infer channel columns
     channels = ['fb', 'gg', 'tt']
     return df, channels
+
+def generate_processed_data():
+    """Generate df_final.csv from source data files"""
+    with st.spinner('🔄 Processing data... This may take a moment on first load.'):
+        from pathlib import Path
+        
+        DATA_DIR = Path('data')
+    
+    # Load source CSV files
+    df_fb = pd.read_csv(DATA_DIR / 'Facebook.csv', parse_dates=['date'])
+    df_gg = pd.read_csv(DATA_DIR / 'Google.csv', parse_dates=['date'])  
+    df_tt = pd.read_csv(DATA_DIR / 'TikTok.csv', parse_dates=['date'])
+    df_biz = pd.read_csv(DATA_DIR / 'Business.csv', parse_dates=['date'])
+
+    # Standardize columns
+    def standardize_columns(df):
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('#', 'num').str.replace(r'[^a-z0-9_]', '', regex=True)
+        df.rename(columns={'impression': 'impressions', 'attributed_revenue': 'revenue'}, inplace=True)
+        return df
+
+    df_fb = standardize_columns(df_fb)
+    df_gg = standardize_columns(df_gg)
+    df_tt = standardize_columns(df_tt)
+    df_biz = standardize_columns(df_biz)
+
+    # Rename business columns for consistency
+    df_biz = df_biz.rename(columns={
+        'total_revenue': 'business_total_revenue',
+        'gross_profit': 'business_gross_profit',
+        'num_of_orders': 'business_orders',
+        'num_of_new_orders': 'business_new_orders',
+        'new_customers': 'business_new_customers',
+        'cogs': 'business_cogs'
+    })
+
+    # Aggregate by date for each channel
+    def agg_channel(df, channel):
+        agg = df.groupby('date').agg({
+            'spend': 'sum',
+            'impressions': 'sum',
+            'clicks': 'sum',
+            'revenue': 'sum'
+        }).rename(lambda x: f"{channel}_" + x, axis=1)
+        return agg
+
+    agg_fb = agg_channel(df_fb, 'fb')
+    agg_gg = agg_channel(df_gg, 'gg')
+    agg_tt = agg_channel(df_tt, 'tt')
+
+    # Merge all marketing data on date
+    df_marketing = agg_fb.join([agg_gg, agg_tt], how='outer')
+
+    # Set date as index for business data and merge
+    df_biz_idx = df_biz.set_index('date')
+    df_merged = df_marketing.join(df_biz_idx, how='outer')
+
+    # Create complete date range and fill missing values
+    full_range = pd.date_range(df_merged.index.min(), df_merged.index.max(), freq='D')
+    df_merged = df_merged.reindex(full_range)
+    df_merged.index.name = 'date'
+
+    # Fill missing values
+    for col in df_merged.columns:
+        if any(x in col for x in ['spend', 'clicks', 'impressions', 'revenue']):
+            df_merged[col] = df_merged[col].fillna(0)
+        else:
+            df_merged[col] = df_merged[col].ffill()
+
+    # Calculate totals and metrics
+    df_merged['total_spend'] = df_merged[[c for c in df_merged.columns if 'spend' in c]].sum(axis=1)
+    df_merged['total_clicks'] = df_merged[[c for c in df_merged.columns if 'clicks' in c]].sum(axis=1)
+    df_merged['total_impressions'] = df_merged[[c for c in df_merged.columns if 'impressions' in c]].sum(axis=1)
+    df_merged['total_revenue'] = df_merged[[c for c in df_merged.columns if 'revenue' in c and not c.startswith('business')]].sum(axis=1)
+
+    # Calculate CTR, CPC, ROAS
+    df_merged['ctr'] = np.where(df_merged['total_impressions'] > 0, df_merged['total_clicks'] / df_merged['total_impressions'], np.nan)
+    df_merged['cpc'] = np.where(df_merged['total_clicks'] > 0, df_merged['total_spend'] / df_merged['total_clicks'], np.nan)
+    df_merged['roas'] = np.where(df_merged['total_spend'] > 0, df_merged['total_revenue'] / df_merged['total_spend'], np.nan)
+
+    # Reset index and save
+    panel_df = df_merged.reset_index()
+    panel_df.to_csv(DATA_DIR / 'df_final.csv', index=False)
+    
+    st.success('✅ Processed data generated successfully!')
 
 def load_campaign_data():
     """Load campaign-level data for drill-down analysis"""
