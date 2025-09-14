@@ -449,12 +449,4 @@ statsmodels>=0.14.0    # Advanced statistics
 
 ## 📝 License
 
-This project is developed for educational and assessment purposes. Please refer to the repository settings for licensing information.
-
-## 🤝 Contributing
-
-This project was created as part of a marketing analytics assessment. For questions or suggestions, please contact the repository owner.
-
----
-
-**Built with** ❤️ **using Python, Streamlit, and modern data science tools**
+This project is developed for educational purposes. 
