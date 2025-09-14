@@ -1,0 +1,8 @@
+# Add your Python dependencies here
+streamlit
+pandas
+plotly
+numpy
+scikit-learn
+scipy
+statsmodels
